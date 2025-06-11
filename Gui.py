@@ -2,8 +2,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, Menu
 import wave
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')
 import librosa
 import joblib
 from numba.np.arrayobj import array_ndim
@@ -12,6 +15,17 @@ from scipy.io.wavfile import write
 import threading
 import Gui_livedetection
 from Gui_livedetection import switch
+
+def get_resource_path(filename):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, filename)
+    return os.path.join(os.path.abspath("."), filename)
+
+model_path = get_resource_path("voice_classifier_speech_final_no_noise_reduce2.0_20_pre_finalfcc.joblib")
+
+print("Pfad zum Modell:", model_path)
+print("Datei vorhanden?", os.path.exists(model_path))
+
 
 loaded_wav_files = []
 
@@ -65,6 +79,18 @@ def show_info():
                         "This tool lets you load multiple WAV files.\nYou can select, view, plot, and process them.\nResults of processing will appear below.\n\n"
                         "You can also record audio using the Start and Stop buttons.")
 
+
+    def get_resource_path(filename):
+        if hasattr(sys, '_MEIPASS'):
+            return os.path.join(sys._MEIPASS, filename)
+        return os.path.join(os.path.abspath("."), filename)
+
+    model_path = get_resource_path("voice_classifier_speech_final_no_noise_reduce2.0_20_pre_finalfcc.joblib")
+
+    print("Pfad zum Modell:", model_path)
+    print("Datei vorhanden?", os.path.exists(model_path))
+
+
 def is_valid_wav(file_path):
     try:
         with wave.open(file_path, 'rb') as wf:
@@ -74,9 +100,15 @@ def is_valid_wav(file_path):
         return False
 
 def select_wav_file():
+    # Verzeichnis des aktuellen Skripts
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Zielordner "UnseenData" im gleichen Verzeichnis
+    initial_directory = os.path.join(script_dir, "UnseenData")
     file_paths = filedialog.askopenfilenames(
         title="Select WAV file(s)",
-        filetypes=[("WAV files", "*.wav")]
+        filetypes=[("WAV files", "*.wav")],
+        initialdir=initial_directory
     )
     if not file_paths:
         messagebox.showwarning("No file", "No file was selected!")
@@ -94,8 +126,8 @@ def select_wav_file():
         else:
             messagebox.showinfo("Duplicate", f"'{os.path.basename(file_path)}' is already loaded.")
 
-    if new_files:
-        messagebox.showinfo("Files Loaded", f"{new_files} new valid WAV file(s) loaded.")
+    #if new_files:
+        #messagebox.showinfo("Files Loaded", f"{new_files} new valid WAV file(s) loaded.")
 
 def get_selected_files():
     selected_indices = listbox.curselection()
@@ -127,16 +159,22 @@ def plot_selected_files():
                 plt.xlabel("Time (s)")
                 plt.ylabel("Amplitude")
                 plt.tight_layout()
-                plt.show()
+                plt.grid()
+                plt.show(block=True)
+
         except Exception as e:
             messagebox.showerror("Plot Error", f"Could not plot '{os.path.basename(file_path)}':\n{e}")
 
 def process_wav_file(file_path):
     try:
-        clf = joblib.load("voice_classifier_speech_final_no_noise_reduce2.0.joblib")#wihtout nois ereduction it works better
+        clf = joblib.load(model_path)#wihtout nois ereduction it works better
         y, sr = librosa.load(file_path, sr=None)
         #y_denoised = nr.reduce_noise(y=y, sr=sr)  # try with and without noise reduction
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        #mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+        alpha = 0.97
+        y_preemph = np.append(y[0], y[1:] - alpha * y[:-1])
+
+        mfcc = librosa.feature.mfcc(y=y_preemph, sr=sr, n_mfcc=20)
         #mfcc = librosa.feature.mfcc(y=y_denoised, sr=sr, n_mfcc=13)
         mfcc_cleaned = np.mean(mfcc.T, axis=0).reshape(1, -1)
 
@@ -218,7 +256,7 @@ listbox = tk.Listbox(root, selectmode=tk.MULTIPLE, width=50, height=10)
 listbox.pack(pady=5)
 
 # Action buttons
-tk.Button(root, text="Show Selected File(s)",
+tk.Button(root, text="Show Selected File(s) Path",
           command=lambda: messagebox.showinfo("Selected", "\n".join(get_selected_files()))).pack(pady=5)
 tk.Button(root, text="Plot Selected WAV File(s)", command=plot_selected_files).pack(pady=5)
 tk.Button(root, text="Predict WAV File", command=process_selected_files).pack(pady=5)
