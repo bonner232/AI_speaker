@@ -154,6 +154,123 @@ class VoiceClassifierApp:
 
         self.root.config(menu=menubar)
 
+    def process_wav_file(self, file_path):
+        """Classify a single WAV file and display results"""
+        if not self.model_loaded:
+            self.status_var.set("Model not loaded - cannot classify")
+            return
+
+        try:
+            # Load audio file
+            y, sr = librosa.load(file_path, sr=None)
+
+            # Pre-emphasis
+            alpha = 0.97
+            y_preemph = np.append(y[0], y[1:] - alpha * y[:-1])
+
+            # Extract MFCC features
+            mfcc = librosa.feature.mfcc(y=y_preemph, sr=sr, n_mfcc=20)
+            mfcc_cleaned = np.mean(mfcc.T, axis=0).reshape(1, -1)
+
+            # Predict using the model
+            label = self.model.predict(mfcc_cleaned)[0]
+            probabilities = self.model.predict_proba(mfcc_cleaned)[0]
+            confidence = max(probabilities) * 100
+
+            # Determine result and color
+            result = "Andi" if label == 0 else "Miro"
+            color = "#1abc9c" if confidence > 85 else "#f39c12"  # Green/Orange based on confidence
+
+            # Display results
+            self.result_box.config(state=tk.NORMAL)
+            self.result_box.insert(tk.END, f"{os.path.basename(file_path)}: ", "bold")
+            self.result_box.insert(tk.END, f"{result} ", ("bold", "result"))
+            self.result_box.insert(tk.END, f"({confidence:.2f}%)\n")
+            self.result_box.tag_config("result", foreground=color)
+            self.result_box.config(state=tk.DISABLED)
+            self.result_box.see(tk.END)
+
+            self.status_var.set(f"Processed: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            self.status_var.set(f"Error processing {file_path}: {str(e)}")
+            messagebox.showerror("Processing Error", f"Could not process {os.path.basename(file_path)}:\n{str(e)}")
+
+    def process_selected_files(self):
+        """Classify all selected files"""
+        if not self.model_loaded:
+            self.status_var.set("Model not loaded - cannot classify")
+            return
+
+        selected_files = self.get_selected_files()
+        if not selected_files:
+            self.status_var.set("Please select files to process")
+            return
+
+        # Clear previous results
+        self.result_box.config(state=tk.NORMAL)
+        self.result_box.delete("1.0", tk.END)
+        self.result_box.config(state=tk.DISABLED)
+
+        # Process each file
+        for file_path in selected_files:
+            self.process_wav_file(file_path)  # This now calls the method we just added
+
+    def plot_mfcc_selected_files(self):
+        """Plot MFCC patterns of selected files"""
+        selected_files = self.get_selected_files()
+        if not selected_files:
+            self.status_var.set("Please select files to plot MFCC")
+            return
+
+        for file_path in selected_files:
+            try:
+                # Audio laden und MFCC extrahieren
+                y, sr = librosa.load(file_path, sr=None)
+
+                # Pre-emphasis
+                alpha = 0.97
+                y_preemph = np.append(y[0], y[1:] - alpha * y[:-1])
+
+                # MFCC berechnen
+                mfcc = librosa.feature.mfcc(y=y_preemph, sr=sr, n_mfcc=20)
+
+                # Plot erstellen
+                plt.figure(figsize=(10, 6), facecolor=BG_COLOR)
+                ax = plt.axes()
+                ax.set_facecolor(ENTRY_COLOR)
+
+                # MFCC visualisieren
+                img = librosa.display.specshow(mfcc,
+                                               x_axis='time',
+                                               sr=sr,
+                                               ax=ax,
+                                               cmap='viridis')
+
+                # Titel und Beschriftungen
+                plt.title(f'MFCC: {os.path.basename(file_path)}', color=TEXT_COLOR)
+                plt.xlabel('Time (s)', color=TEXT_COLOR)
+                plt.ylabel('MFCC Coefficients', color=TEXT_COLOR)
+
+                # Farbbalken hinzufügen
+                cbar = plt.colorbar(img, ax=ax)
+                cbar.set_label('Amplitude', color=TEXT_COLOR)
+                cbar.ax.yaxis.set_tick_params(color=TEXT_COLOR)
+                plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=TEXT_COLOR)
+
+                # Achsenstil anpassen
+                ax.tick_params(axis='both', which='both', colors=TEXT_COLOR)
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(TEXT_COLOR)
+
+                plt.tight_layout()
+                plt.show()
+
+                self.status_var.set(f"Plotted MFCC for {os.path.basename(file_path)}")
+
+            except Exception as e:
+                self.status_var.set(f"MFCC plot error: {str(e)}")
+
     def create_widgets(self):
         """Create and arrange all GUI widgets"""
         # Create main frames
@@ -199,7 +316,8 @@ class VoiceClassifierApp:
         control_frame = ttk.Frame(right_frame)
         control_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Button(control_frame, text="Plot Selected", command=self.plot_selected_files).pack(side=tk.LEFT, padx=2)
+        ttk.Button(control_frame, text="Plot MFCC", command=lambda: self.plot_selected_files(plot_type="mfcc")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(control_frame, text="Plot Waveform", command=lambda: self.plot_selected_files(plot_type="waveform")).pack(side=tk.LEFT, padx=2)
         ttk.Button(control_frame, text="Classify Selected", command=self.process_selected_files).pack(side=tk.LEFT,
                                                                                                       padx=2)
 
@@ -310,53 +428,106 @@ class VoiceClassifierApp:
         selected_indices = self.listbox.curselection()
         return [self.loaded_wav_files[i] for i in selected_indices]
 
-    def plot_selected_files(self):
-        """Plot waveforms of selected files with grid and axis labels"""
+    def plot_selected_files(self, plot_type="waveform"):
+        """Plot waveforms or MFCC patterns of selected files"""
         selected_files = self.get_selected_files()
         if not selected_files:
             self.status_var.set("Please select files to plot")
             return
 
-        self.ax.clear()
+        # Vollständiges Zurücksetzen des Plot-Bereichs
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
 
+        # Setze Stile für die Achsen
+        self.ax.set_facecolor(ENTRY_COLOR)
+        for spine in self.ax.spines.values():
+            spine.set_edgecolor(TEXT_COLOR)
+        self.ax.tick_params(colors=TEXT_COLOR)
+        self.ax.xaxis.label.set_color(TEXT_COLOR)
+        self.ax.yaxis.label.set_color(TEXT_COLOR)
+        self.ax.title.set_color(TEXT_COLOR)
+
+        # Entferne die Colorbar-Referenz, da sie durch clear() bereits entfernt wurde
+        if hasattr(self, 'cbar'):
+            self.cbar = None
+
+        # Verarbeite jede ausgewählte Datei
         for file_path in selected_files:
             try:
-                with wave.open(file_path, 'rb') as wf:
-                    n_channels = wf.getnchannels()
-                    framerate = wf.getframerate()
-                    n_frames = wf.getnframes()
-                    signal = wf.readframes(n_frames)
-                    waveform = np.frombuffer(signal, dtype=np.int16)
+                y, sr = librosa.load(file_path, sr=None)
 
-                    if n_channels == 2:
-                        waveform = waveform[::2]
+                if plot_type == "waveform":
+                    # Plot waveform
+                    with wave.open(file_path, 'rb') as wf:
+                        n_channels = wf.getnchannels()
+                        framerate = wf.getframerate()
+                        n_frames = wf.getnframes()
+                        signal = wf.readframes(n_frames)
+                        waveform = np.frombuffer(signal, dtype=np.int16)
 
-                    times = np.linspace(0, n_frames / framerate, num=n_frames)
-                    self.ax.plot(times, waveform, label=os.path.basename(file_path))
+                        if n_channels == 2:
+                            waveform = waveform[::2]
+
+                        times = np.linspace(0, n_frames / framerate, num=n_frames)
+                        self.ax.plot(times, waveform, label=os.path.basename(file_path))
+
+                    # Setze Beschriftungen und Titel
+                    self.ax.set_xlabel("Time (s)", color=TEXT_COLOR)
+                    self.ax.set_ylabel("Amplitude", color=TEXT_COLOR)
+                    title = "Audio Waveform"
+
+                elif plot_type == "mfcc":
+                    # Pre-emphasis
+                    alpha = 0.97
+                    y_preemph = np.append(y[0], y[1:] - alpha * y[:-1])
+
+                    # Berechne MFCC
+                    mfcc = librosa.feature.mfcc(y=y_preemph, sr=sr, n_mfcc=20)
+
+                    # Zeige MFCC mit specshow für bessere Darstellung
+                    img = librosa.display.specshow(
+                        mfcc,
+                        x_axis='time',
+                        sr=sr,
+                        ax=self.ax,
+                        cmap='viridis'
+                    )
+
+                    # Füge Colorbar hinzu
+                    self.cbar = self.figure.colorbar(img, ax=self.ax)
+                    self.cbar.set_label('Amplitude', color=TEXT_COLOR)
+                    self.cbar.ax.yaxis.set_tick_params(color=TEXT_COLOR)
+                    plt.setp(self.cbar.ax.get_yticklabels(), color=TEXT_COLOR)
+
+                    # Setze Beschriftungen und Titel
+                    self.ax.set_xlabel("Time (s)", color=TEXT_COLOR)
+                    self.ax.set_ylabel("MFCC Coefficients", color=TEXT_COLOR)
+                    title = f"MFCC: {os.path.basename(file_path)}"
+
+                    # Nur die erste Datei plotten, um Überlappungen zu vermeiden
+                    break
 
             except Exception as e:
                 self.status_var.set(f"Plot error: {str(e)}")
 
-        # Add grid and axis labels
-        self.ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-        self.ax.set_xlabel("Time (s)", color=TEXT_COLOR)
-        self.ax.set_ylabel("Amplitude", color=TEXT_COLOR)
-        self.ax.set_title("Audio Waveform", color=TEXT_COLOR, pad=20)
+        # Gemeinsame Plot-Einstellungen
+        self.ax.set_title(title, color=TEXT_COLOR, pad=20)
+        self.ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7, color='#555555')
 
-        # Customize grid appearance
-        self.ax.grid(color=TEXT_COLOR, alpha=0.3)
+        # Für Waveform: Füge Legende hinzu
+        if plot_type == "waveform" and selected_files:
+            legend = self.ax.legend(facecolor=ENTRY_COLOR, labelcolor=TEXT_COLOR)
+            for text in legend.get_texts():
+                text.set_color(TEXT_COLOR)
 
-        # Customize ticks
-        self.ax.tick_params(axis='both', which='both', colors=TEXT_COLOR)
-
-        # Add legend with custom styling
-        legend = self.ax.legend(facecolor=ENTRY_COLOR, labelcolor=TEXT_COLOR)
-        for text in legend.get_texts():
-            text.set_color(TEXT_COLOR)
+        # Für MFCC: Setze die Y-Achsen-Ticks
+        if plot_type == "mfcc":
+            self.ax.set_yticks(np.arange(0, 21, 2))
 
         self.figure.tight_layout()
         self.canvas.draw()
-        self.status_var.set(f"Plotted {len(selected_files)} file(s)")
+        self.status_var.set(f"Plotted {plot_type} for {len(selected_files)} file(s)")
 
     def process_selected_files(self):
         """Classify all selected files"""
@@ -401,6 +572,7 @@ class VoiceClassifierApp:
         self.is_recording = False
         self.record_btn.config(state=tk.NORMAL)
         self.stop_record_btn.config(state=tk.DISABLED)
+        self.status_var.set("Recording stopped")
 
         if self.recorded_frames:
             audio = np.concatenate(self.recorded_frames, axis=0)
@@ -459,8 +631,9 @@ class VoiceClassifierApp:
         """Show about dialog"""
         about_text = ("Voice Classifier Pro\n\n"
                       "Version 2.0\n"
-                      "© 2023 Voice Analysis Systems\n"
-                      "Developed with Python, Librosa and Scikit-learn")
+                      "© 2025 Voice Analysis System\n"
+                      "Developed with Python, Librosa and Scikit-learn\n"
+                      "by [Andreas Ronner and Miro Sieber]\n\n")
         messagebox.showinfo("About Voice Classifier Pro", about_text)
 
 
