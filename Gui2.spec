@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
     ('voice_classifier_speech_final_no_noise_reduce2.0_20_pre_finalfcc.joblib', '.'),
-    ('Voice_classifier_speech_final_no_noise_reduce2.0joblib', '.') if needed
+    ('voice_classifier_speech_final_no_noise_reduce2.0.joblib', '.')
 	],
     hiddenimports=[
         'sklearn.ensemble._forest',
