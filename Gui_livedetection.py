@@ -1,6 +1,7 @@
 import sounddevice as sd
 from scipy.io.wavfile import write
 import os
+import sys
 import joblib
 import librosa
 import numpy as np
@@ -11,6 +12,14 @@ probarr1=[]
 labelarr1=[]
 switch = True
 
+# Resource path handling
+def get_resource_path(filename):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, filename)
+    return os.path.join(os.path.abspath("."), filename)
+
+model_path = get_resource_path("voice_classifier_speech_final_no_noise_reduce2.0.joblib")
+
 def extraction_live(filename, duration=1, sample_rate=16000):
     print("Recording...")
     audio = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='int16')
@@ -19,7 +28,7 @@ def extraction_live(filename, duration=1, sample_rate=16000):
 
 
 def live_classifier(filename):
-    clf = joblib.load("voice_classifier_speech_final_no_noise_reduce2.0.joblib")
+    clf = joblib.load(model_path)
 
     # Extract features
     y, sr = librosa.load(filename, sr=None)
